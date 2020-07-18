@@ -6,6 +6,13 @@ config MACH_XIAOMI_MSM8953
 	help
 	  Support for MSM8953 Xiaomi variants
 
+config MACH_XIAOMI_ULYSSE
+	bool "Xiaomi ulysse"
+	depends on ARCH_MSM8917
+	depends on ARCH_MSM8940
+	help
+	  Support for ulysse Xiaomi variants
+
 menu "Xiaomi board selection"
 
 config MACH_XIAOMI_MIDO
