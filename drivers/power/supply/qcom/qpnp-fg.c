@@ -1,4 +1,5 @@
 /* Copyright (c) 2014-2019, The Linux Foundation. All rights reserved.
+ * Copyright (C) 2018 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -2040,7 +2041,7 @@ static void fg_handle_battery_insertion(struct fg_chip *chip)
 	schedule_delayed_work(&chip->update_sram_data, msecs_to_jiffies(0));
 }
 
-#ifndef CONFIG_MACH_XIAOMI_TISSOT
+#if !defined (CONFIG_MACH_XIAOMI_TISSOT) || !defined (CONFIG_MACH_XIAOMI_ULYSSE)
 static int soc_to_setpoint(int soc)
 {
 	return DIV_ROUND_CLOSEST(soc * 255, 100);
@@ -2271,10 +2272,31 @@ static int get_prop_capacity(struct fg_chip *chip)
 				FULL_SOC_RAW - 2) + 1;
 	}
 
+#ifndef CONFIG_MACH_XIAOMI_ULYSSE
 	if (chip->battery_missing)
 		return MISSING_CAPACITY;
+#else
+	if (chip->battery_missing) {
+
+		msoc = get_monotonic_soc_raw(chip);
+		return DIV_ROUND_CLOSEST((msoc - 1) * (FULL_CAPACITY - 2),
+			FULL_SOC_RAW - 2) + 1;
+	}
+#endif
 	if (!chip->profile_loaded && !chip->use_otp_profile)
+#ifndef CONFIG_MACH_XIAOMI_ULYSSE
 		return DEFAULT_CAPACITY;
+#else
+	{
+
+		msoc = get_monotonic_soc_raw(chip);
+		if (msoc == FULL_SOC_RAW) {
+			return FULL_CAPACITY;
+		}
+		return DIV_ROUND_CLOSEST((msoc - 1) * (FULL_CAPACITY - 2),
+			FULL_SOC_RAW - 2) + 1;
+	}
+#endif
 	if (chip->charge_full)
 		return FULL_CAPACITY;
 	if (chip->soc_empty) {
@@ -2850,6 +2872,9 @@ wait:
 
 	if (fg_debug_mask & FG_MEM_DEBUG_READS)
 		pr_info("BATT_TEMP %d %d\n", temp, fg_data[0].value);
+#ifdef CONFIG_MACH_XIAOMI_ULYSSE
+	pr_err("BATT_TEMP %d %d\n", temp, fg_data[0].value);
+#endif
 
 	get_current_time(&chip->last_temp_update_time);
 
@@ -4578,6 +4603,32 @@ static enum power_supply_property fg_power_props[] = {
 	POWER_SUPPLY_PROP_BATTERY_INFO_ID,
 };
 
+#ifdef CONFIG_MACH_XIAOMI_ULYSSE
+static int update_sram_current(struct fg_chip *chip)
+{
+	int cur=0;
+	int rc=0;
+	u8 reg[4];
+	int64_t temp=0;
+
+	fg_stay_awake(&chip->update_sram_wakeup_source);
+	fg_mem_lock(chip);
+	rc = fg_mem_read(chip,reg,0x5CC,2,3,0);
+	if(rc) {
+		pr_err("Failed to update current sram data\n");
+		return rc;
+	}
+
+	temp=reg[0];
+	temp|=reg[1]<<8;
+	temp=twos_compliment_extend(temp,2);
+	cur=div_s64((s64)temp * LSB_16B_NUMRTR,LSB_16B_DENMTR);
+	fg_mem_release(chip);
+	fg_relax(&chip->update_sram_wakeup_source);
+	return cur;
+}
+#endif
+
 static int fg_power_get_property(struct power_supply *psy,
 				       enum power_supply_property psp,
 				       union power_supply_propval *val)
@@ -4604,7 +4655,11 @@ static int fg_power_get_property(struct power_supply *psy,
 		val->intval = get_sram_prop_now(chip, FG_DATA_VINT_ERR);
 		break;
 	case POWER_SUPPLY_PROP_CURRENT_NOW:
+#ifndef CONFIG_MACH_XIAOMI_ULYSSE
 		val->intval = get_sram_prop_now(chip, FG_DATA_CURRENT);
+#else
+		val->intval = update_sram_current(chip);
+#endif
 		break;
 	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
 		val->intval = get_sram_prop_now(chip, FG_DATA_VOLTAGE);
@@ -4651,6 +4706,8 @@ static int fg_power_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN:
 #ifdef CONFIG_MACH_XIAOMI_TISSOT
 		val->intval = 3080000;
+#elif CONFIG_MACH_XIAOMI_ULYSSE
+		val->intval = 3200;
 #else
 		val->intval = chip->nom_cap_uah;
 #endif
@@ -6429,6 +6486,25 @@ wait:
 				&chip->cc_cv_threshold_mv);
 	}
 
+#ifdef CONFIG_MACH_XIAOMI_ULYSSE
+	if (!of_find_property(chip->spmi->dev.of_node,
+				"qcom,thermal-coefficients", NULL)) {
+		data = of_get_property(profile_node,
+				"qcom,thermal-coefficients", &len);
+		if (data && len == THERMAL_COEFF_N_BYTES) {
+			memcpy(chip->thermal_coefficients, data, len);
+			rc = fg_mem_write(chip, chip->thermal_coefficients,
+				THERMAL_COEFF_ADDR, THERMAL_COEFF_N_BYTES,
+				THERMAL_COEFF_OFFSET, 0);
+			if (rc)
+				pr_err("chen spmi write failed addr:%03x, ret:%d\n",
+						THERMAL_COEFF_ADDR, rc);
+			else if (fg_debug_mask & FG_STATUS)
+				pr_info("chen Battery thermal coefficients changed\n");
+		}
+	}
+#endif
+
 	data = of_get_property(profile_node, "qcom,fg-profile-data", &len);
 	if (!data) {
 		pr_err("no battery profile loaded\n");
@@ -6602,8 +6678,13 @@ done:
 	if (chip->power_supply_registered)
 		power_supply_changed(chip->bms_psy);
 	fg_relax(&chip->profile_wakeup_source);
+#ifndef CONFIG_MACH_XIAOMI_ULYSSE
 	pr_info("Battery SOC: %d, V: %duV\n", get_prop_capacity(chip),
 		fg_data[FG_DATA_VOLTAGE].value);
+#else
+	pr_info("Battery SOC: %d, V: %duV batt_id %d\n", get_prop_capacity(chip),
+		fg_data[FG_DATA_VOLTAGE].value,get_sram_prop_now(chip, FG_DATA_BATT_ID));
+#endif
 	complete_all(&chip->fg_reset_done);
 	return rc;
 no_profile:
@@ -8064,6 +8145,9 @@ static int fg_common_hw_init(struct fg_chip *chip)
 
 #ifdef CONFIG_MACH_XIAOMI_TISSOT
 	rc = fg_mem_masked_write(chip, settings[FG_MEM_DELTA_SOC].address, 0xFF, 1,
+#elif CONFIG_MACH_XIAOMI_ULYSSE
+	rc = fg_mem_masked_write(chip, settings[FG_MEM_DELTA_SOC].address, 0xFF,
+			settings[FG_MEM_DELTA_SOC].value,
 #else
 	rc = fg_mem_masked_write(chip, settings[FG_MEM_DELTA_SOC].address, 0xFF,
 			soc_to_setpoint(settings[FG_MEM_DELTA_SOC].value),

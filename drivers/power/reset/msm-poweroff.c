@@ -63,7 +63,13 @@ static void scm_disable_sdi(void);
  * There is no API from TZ to re-enable the registers.
  * So the SDI cannot be re-enabled when it already by-passed.
  */
+
+#ifndef CONFIG_MACH_XIAOMI_ULYSSE
 static int download_mode = 1;
+#else
+int download_mode = 0;
+#endif
+
 #else
 static const int download_mode;
 #endif
@@ -75,7 +81,11 @@ static const int download_mode;
 #define KASLR_OFFSET_PROP "qcom,msm-imem-kaslr_offset"
 #endif
 
+#ifndef CONFIG_MACH_XIAOMI_ULYSSE
 static int in_panic;
+#else
+int in_panic = 0;
+#endif
 static int dload_type = SCM_DLOAD_FULLDUMP;
 static void *dload_mode_addr;
 static bool dload_mode_enabled;
@@ -314,7 +324,13 @@ static void msm_restart_prepare(const char *cmd)
 	else
 		qpnp_pon_system_pwr_off(PON_POWER_OFF_HARD_RESET);
 
+#ifndef CONFIG_MACH_XIAOMI_ULYSSE
 	if (cmd != NULL) {
+#else
+	if (in_panic) {
+		qpnp_pon_system_pwr_off(PON_POWER_OFF_WARM_RESET);
+	} else if (cmd != NULL) {
+#endif
 		if (!strncmp(cmd, "bootloader", 10)) {
 			qpnp_pon_set_restart_reason(
 				PON_RESTART_REASON_BOOTLOADER);
@@ -366,7 +382,11 @@ static void msm_restart_prepare(const char *cmd)
 			}
 #ifdef CONFIG_QCOM_DLOAD_MODE
 		} else if (!strncmp(cmd, "edl", 3)) {
+#ifndef CONFIG_MACH_XIAOMI_ULYSSE
 			enable_emergency_dload_mode();
+#else
+			pr_info("This command already been disabled");
+#endif
 #endif
 		} else {
 			__raw_writel(0x77665501, restart_reason);
