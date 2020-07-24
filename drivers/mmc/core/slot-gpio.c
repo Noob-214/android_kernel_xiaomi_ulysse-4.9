@@ -2,6 +2,7 @@
  * Generic GPIO card-detect helper
  *
  * Copyright (C) 2011, Guennadi Liakhovetski <g.liakhovetski@gmx.de>
+ * Copyright (C) 2018 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -35,6 +36,9 @@ static irqreturn_t mmc_gpio_cd_irqt(int irq, void *dev_id)
 {
 	/* Schedule a card detection after a debounce timeout */
 	struct mmc_host *host = dev_id;
+#ifdef CONFIG_MACH_XIAOMI_ULYSSE
+	printk("mmc_gpio_cd_irqt hot pulg irq\n");
+#endif
 	int present = host->ops->get_cd(host);
 
 	pr_debug("%s: cd gpio irq, gpio state %d (CARD_%s)\n",
