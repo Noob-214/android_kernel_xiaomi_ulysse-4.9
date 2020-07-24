@@ -56,4 +56,8 @@ ktime_t alarm_expires_remaining(const struct alarm *alarm);
 /* Provide way to access the rtc device being used by alarmtimers */
 struct rtc_device *alarmtimer_get_rtcdev(void);
 
+#ifdef CONFIG_MACH_XIAOMI_ULYSSE
+void set_power_on_alarmExt(long secs, bool enable);
+#endif
+
 #endif
