@@ -2,6 +2,7 @@
  * RTC subsystem, sysfs interface
  *
  * Copyright (C) 2005 Tower Technologies
+ * Copyright (C) 2018 XiaoMi, Inc.
  * Author: Alessandro Zummo <a.zummo@towertech.it>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -13,6 +14,10 @@
 #include <linux/rtc.h>
 
 #include "rtc-core.h"
+
+#ifdef CONFIG_MACH_XIAOMI_ULYSSE
+#include <linux/alarmtimer.h>
+#endif
 
 
 /* device attributes */
@@ -155,6 +160,7 @@ static ssize_t
 wakealarm_store(struct device *dev, struct device_attribute *attr,
 		const char *buf, size_t n)
 {
+#ifndef CONFIG_MACH_XIAOMI_ULYSSE
 	ssize_t retval;
 	unsigned long now, alarm;
 	unsigned long push = 0;
@@ -215,6 +221,15 @@ wakealarm_store(struct device *dev, struct device_attribute *attr,
 
 	retval = rtc_set_alarm(rtc, &alm);
 	return (retval < 0) ? retval : n;
+#else
+	unsigned long alarm;
+	char *buf_ptr;
+	buf_ptr = (char *)buf;
+	alarm = simple_strtoul(buf_ptr, NULL, 0);
+	printk("rtc_sysfs_set_wakealarm enter alarm = %ld\n",alarm);
+		set_power_on_alarmExt(alarm,1);
+		return n;
+#endif
 }
 static DEVICE_ATTR_RW(wakealarm);
 
